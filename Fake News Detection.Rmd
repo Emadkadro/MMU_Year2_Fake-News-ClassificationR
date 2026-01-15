@@ -1,0 +1,851 @@
+---
+title: "Fake News Detection"
+author: "Emad Alkadro"
+date: "2025-01-1"
+output:
+  html_document: 
+    theme: journal
+    highlight: espresso
+---
+
+
+
+## **Introduction:**
+
+At these days, the spread of fake news has become a major concern for all spectrums, including social, political and scientific. Especially after the spread of social media platforms that have the ability to spread news quickly and without reference sources.
+
+Fake news, which is defined as intentionally fabricated information presented as news, has the ability to influence public opinion, disrupt democratic processes, and even endanger lives. The COVID-19 pandemic was the biggest example of a test of fake news, as misleading information about treatments, vaccines and prevention methods spread widely, prompting the World Health Organisation to coin the term "infodemic" to describe that stage.
+
+To address this challenge, predictive modelling techniques have emerged as effective tools for classifying news articles as real or fake. The Applied Predictive Modelling litterateurs highlights several machine learning techniques used for text classification, including K-Nearest Neighbuors (KNN), Support Vector Machines (SVM), Naive Bayes, and ensemble methods such as Random Forest. the selection of the predictive modelling will be based on the nature of the data.
+
+Challenges could occur during the predictive modelling, especially when the models are overfitting or underfitting, which must be mitigated through methods like regularisation and cross-validation.
+
+The main research questions are:
+
+*How to effectively classify news articles as real or fake using predictive modelling techniques?*
+*Which predictive analytics methods provides the highest accuracy in fake news detection?*
+
+To answer these questions, two datasets will be used: the *ISOT fake news dataset* and the *WELFake dataset*. These datasets offers a clear distinction between real and fake news articles using lable, providing a datasets ideal for initial model evaluation. 
+
+The aim of this project is to build predictive model that can accurately classify news articles based on their textual content using machine learning techniques preventing misleading information. The predictive model will be trained based on available the datasets to predict future articles. 
+
+# Dataset One: ISOT_Fake_News_Dataset2
+
+### Step 1: Define Problem Statement
+
+The ISOT Fake News Dataset used for fake news detection that consists of two separate files: 
+One containing fake news articles and 
+The other containing real news articles. 
+The fake news articles were collected from unreliable websites such as flagged by Politifact, while the real news articles were sourced from reputable news providers such as Reuters. The dataset is relatively balanced, with approximately the same number of real and fake news articles.
+
+The problem will be approached using two predictive models: *Random Forest and K-Nearest Neighbuors (KNN)*, which are effective for text-based classification problems.
+
+
+### Step 2: Data Source
+
+```{r setup, include = FALSE}
+# Setting a whole document setup avoiding suppressing messages and warnings.
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+Loading libraries for data manipulation, visualisation, text mining, machine learning etc
+```{r}
+library(dplyr)       # Data manipulation
+library(ggplot2)     # Data visualization
+library(caret)       # Data partitioning and preprocessing
+library(tm)          # Text mining
+library(wordcloud)   # Word cloud generation
+library(RColorBrewer)# Color palettes for word cloud
+library(SnowballC)   # Stemming
+library(randomForest)# Random Forest model
+library(glmnet)      # Elastic Net and Lasso
+library(e1071)       # Misc utilities
+library(text2vec)    # Dealing with text
+library(class)       # KNN Required
+library(textcat)     # Dealing with text
+library(tidytext)    # Tokenise text
+library(syuzhet)     # Calculate sentiment scores
+
+# Load necessary libraries for dataset 2
+library(textclean)
+library(stopwords)
+library(lattice)
+library(NLP)
+```
+
+
+
+```{r}
+#Load fake and true news datasets, assign labels (1 for fake, 0 for true), merge datasets and call it (news_data), and sample 5% of the combined dataset for faster loading and efficient processing using random selection.
+
+# Read fake and true datasets
+fake_news <- read.csv("E:\\AI and Data Sience\\Year 2\\Applied Predictive Modelling\\Assignment\\EMAD_ALKADRO_23646017\\ISOT_Fake_News_Dataset\\Fake.csv")
+true_news <- read.csv("E:\\AI and Data Sience\\Year 2\\Applied Predictive Modelling\\Assignment\\EMAD_ALKADRO_23646017\\ISOT_Fake_News_Dataset\\True.csv")
+
+
+
+# Add a label column to each dataset
+fake_news <- fake_news %>% mutate(label = 1)  # Fake news labeled as 1
+true_news <- true_news %>% mutate(label = 0)  # Real news labeled as 0
+
+# Merge the datasets
+news_data <- bind_rows(fake_news, true_news)
+
+# Use Sample 10% of the dataset for faster processing
+set.seed(123)
+news_data <- news_data %>% sample_frac(0.05)
+```
+
+
+```{r, echo='True', results='hide'}
+# Displays the first five rows of the dataset news_data to preview its structure and content without showing execution results.
+
+head(news_data, 5)
+```
+
+
+```{r}
+# This code explores and inspects a dataset (news_data) by checking its structure, size, summary statistics, missing or duplicate data, column names, and calculating text-related metrics like average word count.
+
+cat("Check the structure of the dataset: \n")
+str(news_data)
+
+# Verify the size of the sampled dataset
+cat("Verify the size of the sampled dataset: \n")
+dim(news_data)
+
+# Display summary statistics
+cat("\n Data Summary:\n")
+summary(news_data)
+
+# Check for missing values
+cat("Missing Data: \n")
+colSums(is.na(news_data))
+
+# Check for duplicate rows
+cat("Duplicate Data: \n")
+sum(duplicated(news_data))
+
+# Check for empty rows in text column
+sum(news_data$text == "")
+
+# Check column names in the dataset
+cat("\n The variables Names: \n")
+colnames(news_data)
+
+# Calculate the total number of rows in the dataset
+cat("\n Number of rows: \n")
+total_rows <- nrow(news_data)
+total_rows
+
+# Calculate the average number of words in the dataset
+news_data$word_count <- sapply(strsplit(news_data$text, "\\s+"), length)
+average_word_count <- mean(news_data$word_count, na.rm = TRUE)
+# Print the result
+cat("Average number of words in the dataset: ", average_word_count, "\n")
+```
+
+
+
+### Step 3: Data Cleaning and Preprocessing
+Cleans the dataset by removing duplicates, standardising text, filtering non-English and inappropriate-length texts (100–1000 words), and eliminating missing values to ensure consistent, relevant, and clean data for analysis.
+```{r}
+# Remove duplicate rows
+news_data <- news_data[!duplicated(news_data), ]
+
+# Text cleaning
+news_data$text <- tolower(news_data$text) %>%
+  gsub("\\b\\w{1,2}\\b", "", .) %>%
+  gsub("[[:punct:]]", " ", .) %>%
+  gsub("[[:digit:]]", " ", .) %>%
+  removeWords(stopwords("en")) %>%
+  gsub("\\s+", " ", .) %>%
+  trimws()
+
+# Remove non-English texts
+news_data <- news_data[textcat(news_data$text) == "english", ]
+
+# Remove rows with too short or too long text
+news_data$word_count <- sapply(strsplit(news_data$text, "\\s+"), length)
+news_data <- news_data[news_data$word_count >= 100 & news_data$word_count <= 1000, ]
+
+# Final check for missing values
+news_data <- na.omit(news_data)
+```
+
+```{r}
+# Save the cleaned dataset to a CSV file
+write.csv(news_data, "cleaned_ISOT_Fake_News_data.csv", row.names = FALSE)
+
+# Provide a download link (in case you're using RMarkdown with Shiny or other web-based setups)
+cat("The cleaned dataset has been saved as 'cleaned_ISOT_Fake_News_data.csv'.")
+```
+
+Ensuring the data are cleaned by checking for empty documents
+```{r}
+# Ensuring the data are cleaned by checking for empty documents, calculates the total number of rows, examines word count distribution, and provides a data summary for further analysis.
+
+# Check for empty documents
+cat("Total number of empty documents: ")
+sum(nchar(news_data$text) == 0)
+
+# Calculate the total number of rows in the dataset
+cat("\n Total number of rows: ")
+total_rows <- nrow(news_data)
+total_rows
+
+# Check the distribution of word counts
+cat("\n The distribution of word counts: \n")
+summary(news_data$word_count)
+
+# Check the summary of the data
+cat("\n Data Summary: \n")
+summary(news_data)
+```
+
+### Step 4: Data Analysis and Exploration
+
+Plot 1: checks label distribution and plots article length distribution, comparing word counts between fake and real news articles for analysis.
+```{r}
+# Check the distribution of labels
+table(news_data$label)
+
+# Plot the distribution of article lengths
+ggplot(news_data, aes(x = word_count, fill = as.factor(label))) +
+  geom_histogram(binwidth = 50, position = "dodge") +
+  labs(title = "Distribution of Article Lengths", x = "Word Count", y = "Frequency", fill = "Label") +
+  theme_minimal()
+```
+
+Plot 2: Tokenises text into Bigrams, counts their frequency, filters by label, and visualizes the most frequent bigrams for fake and real news.
+```{r}
+# Tokenise text into bigrams
+bigrams <- news_data %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Count bigram frequency
+bigram_counts <- bigrams %>%
+  count(bigram, sort = TRUE)
+
+# Filter by label and plot
+bigram_counts <- bigrams %>%
+  group_by(label) %>%
+  count(bigram, sort = TRUE) %>%
+  top_n(10, n)
+
+ggplot(bigram_counts, aes(x = reorder(bigram, n), y = n, fill = as.factor(label))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Most Frequent Bigrams", x = "Phrases (Bigrams)", y = "Frequency", fill = "Label") +
+  theme_minimal()
+```
+
+Plot 3: CalculatesSentiment scores of the articles for each article and visualizes the sentiment distribution for fake and real news using density plots.
+```{r}
+# Calculate sentiment scores
+news_data$sentiment <- get_sentiment(news_data$text)
+
+# Visualize sentiment distribution
+ggplot(news_data, aes(x = sentiment, fill = as.factor(label))) +
+  geom_density(alpha = 0.7) +
+  labs(title = "Sentiment Distribution", x = "Sentiment Score", y = "Density", fill = "Label") +
+  theme_minimal()
+```
+
+Plot 4: This plot visualises the distribution of word counts for fake and real news, highlighting density variations between the two labels.
+```{r}
+ggplot(news_data, aes(x = word_count, fill = as.factor(label))) +
+  geom_density(alpha = 0.7) +
+  labs(title = "Word Count Distribution by Label", x = "Word Count", y = "Density", fill = "Label")
+```
+
+Plot 5: word count and subject distributions highlighting biases in article topics based on their subjects.
+```{r}
+# Bar plot for subject by label
+ggplot(news_data, aes(x = subject, fill = as.factor(label))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Subject Distribution by Label", x = "Subject", y = "Count", fill = "Label")
+```
+
+Plot 6: Word clouds were generated for both the article titles and text content, providing an intuitive representation of frequently used words.
+```{r}
+# Create word clouds for title and text
+title_text <- paste(news_data$title, collapse = " ")
+wordcloud(title_text, max.words = 100, scale = c(3, 0.5), colors = "darkgreen", main = "Title Word Cloud")
+
+text_text <- paste(news_data$text, collapse = " ")
+wordcloud(text_text, max.words = 100, scale = c(3, 0.5), colors = "red", main = "Text Word Cloud")
+```
+
+### Step 5: Feature Selection
+
+Finding correlations helps identify relationships between variables, guiding feature selection, improving model accuracy, and uncovering insights for better decision-making in analysis or predictive modeling.
+```{r}
+# Compute correlation matrix
+numeric_features <- news_data[, c("word_count", "sentiment", "label")]
+cor_matrix <- cor(numeric_features)
+
+# Print correlation matrix
+print(cor_matrix)
+```
+
+
+Document-Term Matrices (DTM) and TF-IDF offer insights into the linguistic patterns of fake versus real news. Ensemble models, in particular, have proven effective in handling the high-dimensional nature of text data while achieving strong classification performance.
+```{r}
+# Create a Corpus and Document-Term Matrix (DTM)
+corpus <- Corpus(VectorSource(news_data$text))
+dtm <- DocumentTermMatrix(corpus)
+dtm <- removeSparseTerms(dtm, 0.99)
+
+# Apply TF-IDF
+tfidf <- weightTfIdf(dtm)
+text_features <- as.data.frame(as.matrix(tfidf))
+
+# Combine TF-IDF features with the label column
+data <- cbind(text_features, label = news_data$label)
+data <- data.frame(lapply(data, as.numeric))
+```
+Sparse terms were removed from the document-term matrix to reduce noise.
+The final dataset incorporated TF-IDF features and the label column for classification.
+
+The cleaned data was converted into a Term Frequency-Inverse Document Frequency (TF-IDF) matrix to represent text data numerically.
+
+
+```{r}
+# Data Splitting and Preprocessing: Before building predictive models, the dataset will be split into training and testing sets using the createDataPartition function. The training data consisted of 70% of the original dataset, while the remaining 30% was used for testing the model. 
+
+# Split data into training and testing sets
+set.seed(123)
+train_index <- createDataPartition(data$label, p = 0.7, list = FALSE)
+train_data <- data[train_index, ]
+test_data <- data[-train_index, ]
+
+# Check for missing values in the training and test data
+sum(is.na(train_data))
+sum(is.na(test_data))
+```
+
+
+Zero-variance features will be removed from both the training and testing sets to ensure a more efficient model training process.
+```{r}
+# Identify zero-variance features
+zero_var_cols <- nearZeroVar(train_data, saveMetrics = TRUE)
+
+# Remove zero-variance features
+train_data <- train_data[, !zero_var_cols$nzv]
+test_data <- test_data[, !zero_var_cols$nzv]
+
+# Ensure all columns (except the label) are numeric
+train_data <- data.frame(lapply(train_data, as.numeric))
+test_data <- data.frame(lapply(test_data, as.numeric))
+```
+
+Data Scaling 
+
+```{r}
+# Scale the data
+train_scale <- scale(train_data[, -ncol(train_data)])
+test_scale <- scale(test_data[, -ncol(test_data)])
+train_scale <- data.frame(train_scale, label = train_data$label)
+test_scale <- data.frame(test_scale, label = test_data$label)
+```
+The data has been scaled to ensures that features with different units or ranges do not disproportionately affect model performance.
+
+
+### Step 6: Predictive Modelling Selection and Training
+
+The predictive modeling section involved training two models: 
+* Random Forest
+* k-Nearest Neighbors (KNN). 
+
+ *Random Forest Predictive Modelling*
+
+```{r}
+# Train Random Forest model
+rf_model <- randomForest(
+  x = train_scale[, -ncol(train_scale)],
+  y = as.factor(train_scale$label),
+  ntree = 50,
+  mtry = min(5, ncol(train_scale) - 1),
+  importance = TRUE)
+
+rf_pred <- predict(rf_model, test_scale[, -ncol(test_scale)])
+```
+
+*KNN Predictive Modelling*
+
+```{r}
+# Train and test KNN model
+k <- 5
+knn_pred <- knn(
+  train = train_scale[, -ncol(train_scale)],
+  test = test_scale[, -ncol(test_scale)],
+  cl = as.factor(train_scale$label),
+  k = k)
+```
+
+
+### Step 7: Model Evaluation
+
+Confusion matrices will be generated for both models to evaluate their performance on the test set.
+
+*Random Forest Predictive Modelling*
+
+```{r}
+# Evaluate Random Forest
+rf_conf_matrix <- confusionMatrix(as.factor(rf_pred), as.factor(test_scale$label))
+print(rf_conf_matrix)
+```
+
+*KNN Predictive Modelling*
+
+```{r}
+# Evaluate KNN
+knn_conf_matrix <- confusionMatrix(as.factor(knn_pred), as.factor(test_scale$label))
+print(knn_conf_matrix)
+```
+
+
+## Step 8: Hyperparameter Tuning
+
+Hyperparameter tuning was conducted for KNN to identify the optimal number of neighbors (k) that maximised accuracy.
+
+```{r}
+# Tune KNN
+k_values <- seq(1, 20, by = 2)
+accuracy_values <- numeric(length(k_values))
+
+for (i in seq_along(k_values)) {
+  k <- k_values[i]
+  knn_pred <- knn(
+    train = train_scale[, -ncol(train_scale)],
+    test = test_scale[, -ncol(test_scale)],
+    cl = as.factor(train_scale$label),
+    k = k
+  )
+  accuracy_values[i] <- confusionMatrix(as.factor(knn_pred), as.factor(test_scale$label))$overall['Accuracy']
+}
+
+# Find the best K
+best_k <- k_values[which.max(accuracy_values)]
+cat("Best K value:", best_k, "\n")
+
+# Plot accuracy of K value
+plot(k_values, accuracy_values, type = "b", col = "blue", pch = 19,
+     xlab = "K Value", ylab = "Accuracy",
+     main = "Accuracy of K for KNN")
+abline(v = best_k, col = "red", lty = 2)
+```
+
+## Model Comparison
+Accuracy of both predictive models
+```{r}
+cat("Random Forest Accuracy:", rf_conf_matrix$overall['Accuracy'], "\n")
+cat("KNN Accuracy with K =", k, ":", knn_conf_matrix$overall['Accuracy'], "\n")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Dataset Two: WEL Fake News Classification
+
+### Step 1: Define Problem Statement
+
+The ability to sharefake news on social media and digital platforms has led to significant challenges to the dissemination of accurate information. The problem addressed in this report is classifying news articles as fake or real. The research aims to build predictive models that are able to classify news articles as fake or real news based on their textual data. 
+The dataset used for this analysis is the WELFake dataset, which contains labelled news articles classified as "fake" or "real" for training and testing the predictive model.
+
+Machine learning techniques to be used for this dataset are: *Logistic Regression, Support Vector Machines (SVM)*, due to their ability to highlight the and classify news articles by applying data preprocessing, feature selection, and model evaluation to achieve high classification accuracy for the textual contents. 
+
+### Step 2: Data Source
+
+Load news datasets and call it (data), and sample 5% of the dataset for faster loading and efficient processing using random selection.
+
+```{r}
+# Load the dataset
+data <- read.csv("E:\\AI and Data Sience\\Year 2\\Applied Predictive Modelling\\Assignment\\EMAD_ALKADRO_23646017\\WELFake_Dataset\\WELFake_Dataset.csv")
+
+# Use Sample 5% of the dataset for faster processing
+set.seed(123)
+data <- data %>% sample_frac(0.05)
+```
+
+Displays the first five rows of the dataset to preview its structure and content without showing execution results on the R report document.
+
+```{r, echo='True', results='hide'}
+# Display the merged dataset
+head(data, 5)
+```
+
+### Step 3: Data Cleaning and Preprocessing
+
+Cleans the dataset by removing duplicates, standardising text, filtering non-English, and eliminating missing values to ensure consistent, relevant, and clean data for analysis.
+```{r}
+# Remove duplicate rows
+data <- data[!duplicated(data), ]
+
+# Text cleaning
+data$text <- tolower(data$text) %>%
+  gsub("\\b\\w{1,2}\\b", "", .) %>%
+  gsub("[[:punct:]]", " ", .) %>%
+  gsub("[[:digit:]]", " ", .) %>%
+  removeWords(stopwords("en")) %>%
+  gsub("\\s+", " ", .) %>%
+  trimws()
+
+# Remove non-English texts
+data <- data[textcat(data$text) == "english", ]
+
+# Final check for missing values
+data <- na.omit(data)
+```
+
+```{r}
+# Save the cleaned dataset to a CSV file
+write.csv(data, "cleaned_WELFake_News_data.csv", row.names = FALSE)
+
+# Provide a download link (in case you're using RMarkdown with Shiny or other web-based setups)
+cat("The cleaned dataset has been saved as 'cleaned_news_WELFake_News_data.csv'.")
+```
+
+
+Ensuring the data are cleaned by checking for empty documents, calculates the total number of rows, examines word count distribution, and provides a data summary for further analysis.
+```{r}
+# Check for empty documents
+cat("Total number of empty documents: ")
+sum(nchar(data$text) == 0)
+
+# Calculate the total number of rows in the dataset
+cat("\n Total number of rows: ")
+total_rows <- nrow(data)
+total_rows
+
+# Check the distribution of word counts
+cat("\n The distribution of word counts: \n")
+summary(data$word_count)
+
+# Check the summary of the data
+cat("\n Data Summary: \n")
+summary(data)
+```
+
+### Step 4: Data Analysis and Exploration
+
+Create all the required plots to analyse the data and understand the type of feature needed. 
+```{r}
+# Plot 1: Label distribution
+ggplot(data, aes(x = as.factor(label), fill = as.factor(label))) +
+  geom_bar() +
+  scale_fill_manual(values = c("0" = "skyblue", "1" = "lightcoral"), labels = c("Real", "Fake")) +
+  labs(title = "Class Distribution", x = "Label", y = "Count", fill = "News Type") +
+  theme_bw()
+
+
+# Plot 2: Word cloud for text
+wordcloud(data$text, max.words = 100, random.order=FALSE, colors=brewer.pal(8, "Dark2"))
+
+# Add label difference to text length distribution
+data <- data %>%
+  mutate(text_length = nchar(text), title_length = nchar(title))
+
+# Plot: Text length distribution by label
+ggplot(data, aes(x = text_length, fill = as.factor(label))) +
+  geom_histogram(bins = 30, alpha = 0.7, position = "identity", color = "black") +
+  scale_fill_manual(values = c("0" = "skyblue", "1" = "lightcoral"), 
+                    labels = c("Real", "Fake")) +
+  ggtitle("Text Length Distribution by Label") +
+  labs(x = "Text Length", fill = "News Type") +
+  theme_bw()# Add label difference to text length distribution
+```
+
+
+
+## Step 5: Feature Selection
+
+prepares text data for machine learning by creating a vocabulary, vectorising text into a TF-IDF matrix, and removing low-variance features for optimised model compatibility.
+```{r}
+# Prepare data for vectorisation
+texts <- data$text
+labels <- data$label
+
+# Create vocabulary and vectorizer (using min_term_freq for better performance)
+vocab <- create_vocabulary(itoken(texts), ngram = c(1L, 2L), min_term_freq = 5) # Added ngrams and min_term_freq
+vocab <- prune_vocabulary(vocab, term_count_min = 5, doc_proportion_max = 0.5) # Prune vocabulary
+
+vectorizer <- vocab_vectorizer(vocab)
+
+# Create TF-IDF matrix
+dtm <- create_dtm(itoken(texts), vectorizer)
+tfidf <- TfIdf$new()
+tfidf_matrix <- tfidf$fit_transform(dtm)
+
+# Convert to a standard matrix for compatibility with caret
+tfidf_matrix <- as.matrix(tfidf_matrix)
+
+# Check for near-zero variance features and remove them
+nzv <- nearZeroVar(tfidf_matrix)
+if (length(nzv) > 0) {
+  tfidf_matrix <- tfidf_matrix[, -nzv]
+}
+```
+Feature Seleaction
+•	TF-IDF Vectorisation: Created term document matrices with n-grams and applied pruning to remove terms with low frequency or high document proportion.
+•	Near Zero Variance Feature Removal: Reduced noise by discarding low-variance features.
+
+
+Data Splitting and Preprocessing
+Before building predictive models, the dataset will be split into training and testing sets using the Sample function. The training data consisted of 80% of the original dataset, while the remaining 20% was used for testing the model. 
+
+```{r}
+# Train-test split
+set.seed(123)
+train_indices <- sample(1:nrow(data), 0.8 * nrow(data))
+
+train_data <- tfidf_matrix[train_indices, ]
+test_data <- tfidf_matrix[-train_indices, ]
+train_labels <- labels[train_indices]
+test_labels <- labels[-train_indices]
+
+# turn labels into factors
+train_labels <- as.factor(train_labels)
+test_labels <- as.factor(test_labels)
+```
+
+
+### Step 6 + 8: Predictive Modelling Selection & Hyperparameter TuningTraining
+
+1.	Logistic Regression with cross validation: This model applies hyperparameter tuning. The hyperparameter being tuned is lambda, which controls the strength of regularisation in the Lasso regression. The tuning is achieved through 5-fold cross-validation using the cv.glmnet function, which evaluates the model's performance for multiple values of lambda and selects the one that minimizes the misclassification error.
+```{r}
+# Logistic Regression Model with cross validation
+set.seed(123)
+# Perform 5-fold cross validation for logistic regression using Lasso regularisation
+cv_glmnet <- cv.glmnet(
+  x = train_data, # Input features for the training dataset
+  y = train_labels, # Use labels for the training dataset
+  family = "binomial", 
+  alpha = 1, # Lasso regression
+  type.measure = "class", # Measure misclassification error
+  nfolds = 5 # 5-fold cross-validation
+)
+
+# Select the best lambda (that minimizes the misclassification error) value from cross validation
+best_lambda <- cv_glmnet$lambda.min
+cat("Best lambda:", best_lambda, "\n")
+
+# Fit Logistic Regression Model with best lambda
+logistic_model <- glmnet(
+  x = train_data, 
+  y = train_labels,
+  family = "binomial",
+  alpha = 1,
+  lambda = best_lambda
+)
+
+# Predictions for the test dataset
+predicted_probabilities <- predict(logistic_model, newx = test_data, type = "response")
+predictions <- ifelse(predicted_probabilities > 0.5, "1", "0") # Convert probabilities into binary predictions
+predictions <- factor(predictions, levels = levels(test_labels)) # Convert predictions into a factor with the same levels as the test labels
+
+# Display a preview of the predictions
+head(predictions)
+```
+
+2.	Support Vector Machines (SVM):
+SVM with a radial basis function (RBF) kernel was trained, leveraging its ability to handle non-linear relationships.
+
+```{r}
+# Train SVM Model using caret for control and tuning
+ctrl <- trainControl(method = "cv", number = 5) # 5-fold cross-validation
+svm_model <- train(x = train_data, y = train_labels, method = "svmRadial", trControl = ctrl, preProcess = c("center", "scale"))
+
+# Predictions
+predictions <- predict(svm_model, newdata = test_data)
+```
+
+
+### Step 7: Model Evaluation
+
+```{r}
+# Logistic Regression Evaluation metrics
+conf_matrix <- confusionMatrix(predictions, test_labels)
+print(conf_matrix)
+
+# Precision, Recall, F1-Score
+precision <- posPredValue(predictions, test_labels, positive = "1")
+recall <- sensitivity(predictions, test_labels, positive = "1")
+f1 <- 2 * (precision * recall) / (precision + recall)
+
+cat("Logistic Regression model evaluation \n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1-Score:", f1, "\n")
+
+```
+
+
+```{r}
+# SVM Evaluation metrics
+confusionMatrix(predictions, test_labels)
+
+# Precision, Recall, F1-Score
+precision <- posPredValue(predictions, test_labels)
+recall <- sensitivity(predictions, test_labels)
+f1 <- 2 * (precision * recall) / (precision + recall)
+
+cat("Support Vector Machine model evaluation \n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+cat("F1-Score:", f1, "\n")
+```
+
+## **Exploratory Data Analysis:**
+
+*Data Cleaning* 
+Before applying predictive modelling classification, both datasets were cleaned and preprocessed. This included removing duplicate rows, converting text to lowercase, removing punctuation and numbers, and eliminating non-meaning words. Also, non-English text was removed to ensure consistency in the analysis. The cleaned datasets were then analysed to display the distribution of word counts, sentiment scores, and the frequency of words.For computational feasibility, 5% samples were selected from both datasets, resulting in fast loading for the datasets.
+  
+*Datasets Visualisations*
+Plots were created to understand the most effective data that can be relied on for prediction. Word clouds were created to identify the most frequent words in article text. Histograms were used to visualise the distribution of article lengths, and bar charts were created to show the frequency of double words.
+
+Text Lengths: Histograms showed that fake news articles were shorter in both datasets.
+Word Clouds: Fake news articles exhibited sensational language, while real news relied on more neutral and factual terms.
+
+*Analysis*
+The plots highlighted distinct patterns. Word clouds for fake news articles revealed sensational words designed to evoke emotional responses and real news articles featured more neutral and informative terms. Histograms of article lengths indicated that fake news articles were shorter and used more polarised language. Sentiment analysis further revealed that fake news articles often exhibited extreme sentiment scores, correlating with their intent to provoke reactions.
+
+These analyses indicate linguistic differences between fake and real news articles, providing a basis for predictive modelling.
+
+
+
+## **Methodology**
+
+*Using DTM & TF-IDF*
+Performing predictive analytics by experimenting with various models to classify text data based on the features extracted from the dataset. Data preparation involves creating a Document-Term Matrix (DTM) from the text data. To make the features more meaningful, and apply Term Frequency-Inverse Document Frequency (TF-IDF), which helps weight the terms based on their importance in the entire corpus. The resulting TF-IDF features will be then combined with the target variable (label) to form a structured dataset for analysis.
+
+*Modeling Techniques for ISOT Dataset*
+
+1. *Random Forest*: The Random Forest model was trained on the ISOT dataset and has effective performance in identifying real and fake news articles, with high precision and recall scores. Random Forest is an ensemble learning method that creates multiple decision trees during training and outputs a class pattern (for classification) of the individual trees. It can handle high dimensional data. The model’s performance was evaluated using a confusion matrix, which showed a high number of true positives and true negatives, indicating that the model was effective in identifying real and fake news.
+
+2. *K-Nearest Neighbuors (KNN)*: The KNN model has effective performance, it was less and a simple non-parametric algorithm that classifies data points based on the majority class of their nearest neighbuors. The value of k was calculated using cross validation, with the best value of k = 5.
+KNN was used as a baseline model due to its simplicity and ability to make non-linear classifications but can be expensive for large datasets, as it requires calculating the distance between each pair of data points. Since the dataset usage is only 5% and the model takes some time to process, it is unlikely to be able to process 100% of the dataset.
+
+*Modeling Techniques for WELFake Dataset*
+
+3. *Logistic Regression*: Due to dealing with Binary Classification in this dataset, as it has a binary target variable (label) where 0 indicates "real" news and 1 indicates "fake" news, Logistic Regression is suitable tasks. The model also provides probabilistic outputs, which can help quantify the confidence of predictions. The dataset is textual and has been converted into a numerical feature space (TF-IDF), making it compatible with Logistic Regression.
+
+4. *Support Vector Machines (SVM)*: Textual data usually results in high-dimensional feature spaces. SVM is well-suited for challenge because it focuses on the margin between classes, making it robust to the curse of dimensionality.
+
+
+*Model Selection and Validation*
+•	Both datasets were divided into training and testing subsets. 
+•	Cross-validation techniques were used to tune hyperparameters.
+•	Logistic Regression relied on Lasso regularisation, while Random Forest and SVM utilised built-in methods for feature selection and optimisation.
+
+
+## **Results**
+
+*Results of ISOT Dataset Modeling Techniques*
+*Random Forest (RF) VS K-Nearest Neighbuors (KNN)*
+The comparison of the methods highlights Random Forest's superior performance in classifying news articles. Random Forest achieved an accuracy of 97.35%, higher than KNN with an accuracy of 75.61%. It also demonstrated better specificity (RF 96.97% vs. KNN 58.25%) and a balanced accuracy of 97.41%, compared to KNN's 78.05%, indicating better performance across both classes. 
+
+While both models showed high sensitivity (97.84%), Random Forest had a stronger Positive Predictive Value (96.19%) and Kappa statistic (0.9464), showing more reliable and consistent predictions. 
+Additionally, McNemar's test indecate no significant bias in Random Forest’s predictions, unlike KNN. 
+
+Overall, Random Forest's ability to handle high-dimensionaln  and  complex data makes it suitable and effective choice for this dataset, while KNN's lower specificity and accuracy limit its utility for balanced classification.
+
+*Results of WELFake Dataset Modeling Techniques*
+*Logistic Regression VS  Support Vector Machine*
+For the WELFake dataset, Logistic Regression and Support Vector Machines (SVM) achieved similar accuracy of 84.38% with comparable sensitivity Logistic (Regression: 79.15%, SVM: 79.15%) and specificity (Logistic: 89.80%, SVM: 89.80%). Logistic Regression delivered higher F1-Score of 84.97% compared to SVM with a rate of 83.76%, indicating better balance between precision and recall. Logistic Regression's precision was 80.63% and recall 89.80%, while SVM achieved higher precision at 88.92% but lower recall of 79.15%. McNemar's test for both models revealed some prediction biases. Both methods demonstrated effective text classification, but Logistic Regression provided a more consistent balance, whereas SVM prioritised precision.
+
+*Overall Results*
+
+Based on all the outcomes and evaluation of the methods used for the classification of fake and real articles, the Random Forest model was the most reliable method to perform prediction due to the ability to handle high-dimensional data and complex relationships, along with its reliable predictions across both classes, achieving accuracy of 97.35%, high specificity (96.97%), balanced accuracy (97.41%), and a strong Kappa statistic (0.9464). Random Forest outperformed all other models, including KNN, Logistic Regression, and SVM. While Logistic Regression and SVM performed comparably on the WELFake dataset, their accuracy (84.38%) and other metrics were not as competitive. 
+
+
+
+```{r}
+# Load necessary libraries
+library(knitr)
+library(kableExtra)
+
+# Create a data frame for the results
+results <- data.frame(
+  Model = c("Random Forest", "KNN (Best k=5)", "Logistic Regression", "SVM"),
+  Accuracy = c(97.35, 75.61, 84.38, 84.38),
+  Precision = c(96.19, 64.67, 80.63, 88.92),
+  Recall = c(97.84, 97.84, 89.80, 79.15),
+  F1_Score = c(97.41, 78.05, 84.97, 83.76)
+)
+
+# Display the table
+kable(results, format = "markdown", caption = "Model Performance Results") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = F) %>%
+  row_spec(0, background = "#4CAF50", color = "black") %>%  # Header row with green background
+  row_spec(1:4, background = "#f2f2f2", color = "black")    # Data rows with light gray background
+
+```
+
+
+
+
+### **Challenges and Suggestions**
+
+One of the most challenges faced during the preprocessing for this project was the *computational complexity* associated with text vectorisation. The process of converting text data into numerical features using techniques such as TF-IDF (Term Frequency-Inverse Document Frequency) is resource-intensive, especially for large datasets like WELFake. The creation of the document-term matrix (DTM) required substantial memory and powerful processing power, which slowed down the analysis. To mitigate the problem, the data was sampled and the approach has limitations to access the dataset, as it reduces the amount of data available for training and testing. 
+
+Suggestions for future work could: explore more efficient text vectorisation methods, such as *hashing techniques* or *dimensionality reduction* might be required to reduce computational overhead without sacrificing model performance.
+
+Another challenge was the *imbalance in the datasets*, particularly in the WELFake dataset, where real news articles outnumbered fake news articles. This imbalance can lead to biased models that perform effectively on the majority class (real news), but poorly on the minority class (fake news). 
+
+To address problem, techniques such as *oversampling the minority class* or **applying class weights** during model training could be explored. These methods would help the models learn more effectively from the underrepresented class, improving the model ability to detect fake news.
+
+*Unaddressed challenge*
+The computational limitation is associated with processing the entire dataset. To address this, only 5% of the dataset is utilized for analysis. However, this reduced sample size may impact the generalizability of the results, as the model may not fully capture the dataset's complexities or underlying patterns. Scaling to 100% of the dataset remains a challenge due to processing time and resource constraints.
+
+
+## **Conclusions**
+
+In conclusion, this project demonstrated the effectiveness of predictive modelling techniques for fake news detection. Random Forest as the most accurate models, achieving high accuracy, precision, and recall scores on both the ISOT and WELFake datasets. This model is suitable for handling the high-dimensional nature of text data and can effectively classify *real and fake* news articles.
+
+## **References**
+
+ISOT Fake News Dataset: *Fake News Detection Datasets - University of Victoria (uvic.ac): * 
+[https://onlineacademiccommunity.uvic.ca/isot/2022/11/27/fake-news-detection-datasets/](https://onlineacademiccommunity.uvic.ca/isot/2022/11/27/fake-news-detection-datasets/)
+
+WELFake Dataset *Fake News Classification | Kaggle: *
+[https://www.kaggle.com/datasets/saurabhshahane/fake-news-classification](https://www.kaggle.com/datasets/saurabhshahane/fake-news-classification88)
+
+### Please Note, to download the whole datasets and prediction, you need to click on the link below:
+
+Fake News DatasetS: *Fake News Detection Datasets: * 
+[https://stummuac-my.sharepoint.com/:f:/r/personal/23646017_stu_mmu_ac_uk/Documents/Year2/Applied%20Predictive%20Modelling/Assignment/Emad_Alkadr_(23646017)_final_report?csf=1&web=1&e=5iOOd2](https://stummuac-my.sharepoint.com/:f:/r/personal/23646017_stu_mmu_ac_uk/Documents/Year2/Applied%20Predictive%20Modelling/Assignment/Emad_Alkadr_(23646017)_final_report?csf=1&web=1&e=5iOOd2) 
+
