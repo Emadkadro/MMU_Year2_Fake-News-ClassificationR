@@ -1,3 +1,5 @@
+Fake News Detection
+
 ## Problem Statement
 
 The ISOT Fake News Dataset used for fake news detection that consists of two separate files: 
